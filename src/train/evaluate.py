@@ -5,6 +5,8 @@ import numpy as np
 import json
 import argparse
 from tqdm import tqdm
+import sentencepiece as spm
+import sacrebleu
 
 from src.model.transformer import Transformer
 from src.data.prepare_data import get_dataloaders
@@ -13,17 +15,20 @@ def evaluate(args):
     # Load model checkpoint
     checkpoint = torch.load(args.model_path, map_location=torch.device('cpu'))
     model_args = checkpoint['model_args']
-    
-    # Create model with the same architecture
+
+    # Load tokenizer
+    sp = spm.SentencePieceProcessor()
+    sp.load(os.path.join(args.data_dir, "tokenizer.model"))
+
+    # Create model
     model = Transformer(
-        src_vocab_size=model_args['src_vocab_size'],
-        tgt_vocab_size=model_args['tgt_vocab_size'],
+        vocab_size=model_args['d_model'],
         d_model=model_args['d_model'],
         num_heads=model_args['num_heads'],
         num_layers=model_args['num_layers'],
         d_ff=model_args['d_ff'],
         max_seq_length=model_args['max_seq_length'],
-        dropout=0.0  # No dropout during evaluation
+        dropout=0.0  # no dropout during evaluation
     )
     
     # Load model weights
@@ -33,16 +38,9 @@ def evaluate(args):
     device = torch.device('cuda' if torch.cuda.is_available() and not args.no_cuda else 'cpu')
     model.to(device)
     
-    # Load data stats
-    with open(os.path.join(args.data_dir, 'stats.json'), 'r') as f:
-        stats = json.load(f)
-    
-    block_size = stats['max_seq_length']
-    
     # Create dataloaders
-    _, _, val_loader = get_dataloaders(
+    _, _, test_loader = get_dataloaders(
         data_dir=args.data_dir,
-        block_size=block_size,
         batch_size=args.batch_size
     )
     
@@ -54,42 +52,81 @@ def evaluate(args):
     total_loss = 0.0
     total_tokens = 0
     correct_predictions = 0
-    
+    references = []
+    hypotheses = []
+
     with torch.no_grad():
-        for x, y in tqdm(val_loader, desc="Evaluating"):
-            x, y = x.to(device), y.to(device)
+        for src, tgt in tqdm(test_loader, desc="Evaluating"):
+            src, tgt = src.to(device), tgt.to(device)
             
             # Forward pass
-            logits = model(x, y[:, :-1])
+            logits = model(src, tgt[:, :-1])
             
             # Compute loss
-            loss = criterion(logits.contiguous().view(-1, model_args['tgt_vocab_size']), y[:, 1:].contiguous().view(-1))
-            total_loss += loss.item() * y[:, 1:].numel()
+            loss = criterion(logits.view(-1, vocab_size), tgt[:, 1:].contiguous().view(-1))
+            mask = tgt[:, 1:] != 0
+            
+            total_loss += loss.item() * mask.sum().item()
+            total_tokens += mask.sum().item()
             
             # Count correct predictions
-            predictions = torch.argmax(logits, dim=-1)
-            mask = y[:, 1:] != 0
-            correct_predictions += ((predictions == y[:, 1:]) & mask).sum().item()
+            predictions = logits.argmax(-1)
+            correct_predictions += ((predictions == tgt[:, 1:]) & mask).sum().item()
             
-            # Count tokens
-            total_tokens += mask.sum().item()
+            # Generate hypothesis sentences (greedy decode only for BLEU)
+            for i in range(src.size(0)):
+                pred_ids = greedy_decode(model, src[i:i+1], sp, device, max_len=model_args['max_seq_length'])
+                ref_text = sp.decode(tgt[i].cpu().tolist())
+                hyp_text = sp.decode(pred_ids)
+                references.append([ref_text])
+                hypotheses.append(hyp_text)
     
     # Compute perplexity and accuracy
     avg_loss = total_loss / total_tokens
     perplexity = np.exp(avg_loss)
     accuracy = correct_predictions / total_tokens
-    
+    bleu = sacrebleu.corpus_bleu(hypotheses, references).score
+
     # Print evaluation results
     print(f"Evaluation results:")
     print(f"  Loss: {avg_loss:.4f}")
     print(f"  Perplexity: {perplexity:.4f}")
     print(f"  Accuracy: {accuracy:.4f}")
+    print(f"  BLEU: {bleu:.2f}")
     
     return {
         "loss": avg_loss,
         "perplexity": perplexity,
-        "accuracy": accuracy
+        "accuracy": accuracy,
+        "bleu": bleu
     }
+
+def greedy_decode(model, src, sp, device, max_len=100):
+    model.eval()
+    bos_id = sp.bos_id()
+    eos_id = sp.eos_id()
+
+    src_mask = (src != 0).unsqueeze(1).unsqueeze(2)
+    src_emb = model.dropout(model.positional_encoding(model.encoder_embedding(src)))
+    for enc_layer in model.encoder_layers:
+        src_emb = enc_layer(src_emb, src_mask)
+    enc_output = src_emb
+
+    ys = torch.full((1, 1), bos_id, dtype=torch.long, device=device)
+
+    for _ in range(max_len):
+        tgt_mask = model._generate_tgt_mask(ys.size(1)).to(device)
+        tgt_emb = model.dropout(model.positional_encoding(model.decoder_embedding(ys)))
+        dec_output = tgt_emb
+        for dec_layer in model.decoder_layers:
+            dec_output = dec_layer(dec_output, enc_output, src_mask, tgt_mask)
+        out = model.fc(dec_output[:, -1])
+        next_word = out.argmax(-1).unsqueeze(1)
+        ys = torch.cat([ys, next_word], dim=1)
+        if next_word.item() == eos_id:
+            break
+
+    return ys[0, 1:].cpu().tolist()  # Bỏ BOS
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate a GPT-mini model")

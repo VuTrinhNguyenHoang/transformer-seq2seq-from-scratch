@@ -139,11 +139,48 @@ def train(args):
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             os.makedirs(args.output_dir, exist_ok=True)
-            torch.save(model.state_dict(), os.path.join(args.output_dir, 'best_model.pt'))
-            print(f"Saved best model to {os.path.join(args.output_dir, 'best_model.pt')}")
+            # Create checkpoint
+            checkpoint = {
+                'epoch': epoch + 1,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'train_loss': avg_train_loss,
+                'val_loss': avg_val_loss,
+                'model_args': {
+                    'vocab_size': vocab_size,
+                    'd_model': args.d_model,
+                    'num_heads': args.num_heads,
+                    'num_layers': args.num_layers,
+                    'd_ff': args.d_ff,
+                    'max_seq_length': args.max_seq_length,
+                    'dropout': args.dropout
+                },
+                'total_parameters': total_params,
+                'trainable_parameters': trainable_params
+            }
+            torch.save(checkpoint, os.path.join(args.output_dir, 'best_model.pt'))
+            print(f"Saved best model checkpoint to {os.path.join(args.output_dir, 'best_model.pt')}")
     
     # Save final model
-    torch.save(model.state_dict(), os.path.join(args.output_dir, 'final_model.pt'))
+    checkpoint = {
+        'epoch': args.epochs,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'train_loss': avg_train_loss,
+        'val_loss': avg_val_loss,
+        'model_args': {
+            'vocab_size': vocab_size,
+            'd_model': args.d_model,
+            'num_heads': args.num_heads,
+            'num_layers': args.num_layers,
+            'd_ff': args.d_ff,
+            'max_seq_length': args.max_seq_length,
+            'dropout': args.dropout
+        },
+        'total_parameters': total_params,
+        'trainable_parameters': trainable_params
+    }
+    torch.save(checkpoint, os.path.join(args.output_dir, 'final_model.pt'))
     print(f"Saved final model to {os.path.join(args.output_dir, 'final_model.pt')}")
 
 if __name__ == "__main__":

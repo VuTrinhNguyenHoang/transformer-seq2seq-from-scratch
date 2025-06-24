@@ -19,7 +19,7 @@ class TranslationDataset(Dataset):
         y = torch.tensor(self.target_ids[idx], dtype=torch.long)
         return x, y
 
-def prepare_data(output_dir='data', vocab_size=16000):
+def prepare_data(output_dir='data', vocab_size=16000, max_seq_length=128):
     """
     Prepare dataset for Machine Translation using IWSLT2015 EN-VI
     """
@@ -54,6 +54,11 @@ def prepare_data(output_dir='data', vocab_size=16000):
         for example in dataset[split]:
             src = sp.encode(example['en'], out_type=int)
             tgt = sp.encode(example['vi'], out_type=int)
+
+            # Truncation 
+            src = src[:max_seq_length]
+            tgt = tgt[:max_seq_length]
+
             source_ids.append(src)
             target_ids.append(tgt)
         
@@ -110,9 +115,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Prepare IWSLT2015 EN-VI dataset for training")
     parser.add_argument("--output_dir", type=str, default="data", help="Directory to save processed data")
     parser.add_argument("--vocab_size", type=int, default=16000, help="Vocabulary size for tokenizer")
+    parser.add_argument("--max_seq_length", type=int, default=128, help="Maximum sequence length after tokenization")
 
     args = parser.parse_args()
     
-    stats = prepare_data(output_dir=args.output_dir, vocab_size=args.vocab_size)
+    stats = prepare_data(output_dir=args.output_dir, vocab_size=args.vocab_size, max_seq_length=args.max_seq_length)
     
     print(f"Data preparation completed. Stats: {stats}")

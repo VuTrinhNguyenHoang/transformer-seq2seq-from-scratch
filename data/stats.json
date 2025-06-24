@@ -1,0 +1,1 @@
+{"src_vocab_size": 50257, "tgt_vocab_size": 50257, "train_tokens": 18106, "dev_tokens": 2263, "val_tokens": 2264, "max_seq_length": 128, "tokenizer": "gpt2"}

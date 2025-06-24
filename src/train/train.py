@@ -154,11 +154,11 @@ if __name__ == "__main__":
     parser.add_argument("--output_dir", type=str, default="models", help="Directory to save model checkpoints")
     
     # Model arguments
-    parser.add_argument("--d_model", type=int, default=512, help="Model dimension")
-    parser.add_argument("--num_heads", type=int, default=8, help="Number of attention heads")
-    parser.add_argument("--num_layers", type=int, default=6, help="Number of transformer layers")
-    parser.add_argument("--d_ff", type=int, default=2048, help="Feed-forward dimension")
-    parser.add_argument("--max_seq_length", type=int, default=128, help="Max sequence length")
+    parser.add_argument("--d_model", type=int, default=128, help="Model dimension")
+    parser.add_argument("--num_heads", type=int, default=2, help="Number of attention heads")
+    parser.add_argument("--num_layers", type=int, default=2, help="Number of transformer layers")
+    parser.add_argument("--d_ff", type=int, default=512, help="Feed-forward dimension")
+    parser.add_argument("--max_seq_length", type=int, default=512, help="Max sequence length")
     parser.add_argument("--dropout", type=float, default=0.1, help="Dropout rate")
     
     # Training arguments

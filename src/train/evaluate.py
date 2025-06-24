@@ -74,10 +74,10 @@ def evaluate(args):
             correct_predictions += ((predictions == tgt[:, 1:]) & mask).sum().item()
             
             # Generate hypothesis sentences (greedy decode only for BLEU)
+            pred_ids_batch = batch_greedy_decode(model, src, sp, device, max_len=model_args['max_seq_length'])
             for i in range(src.size(0)):
-                pred_ids = greedy_decode(model, src[i:i+1], sp, device, max_len=model_args['max_seq_length'])
                 ref_text = sp.decode(tgt[i].cpu().tolist())
-                hyp_text = sp.decode(pred_ids)
+                hyp_text = sp.decode(pred_ids_batch[i])
                 references.append([ref_text])
                 hypotheses.append(hyp_text)
     
@@ -101,10 +101,10 @@ def evaluate(args):
         "bleu": bleu
     }
 
-def greedy_decode(model, src, sp, device, max_len=100):
-    model.eval()
+def batch_greedy_decode(model, src, sp, device, max_len=100):
     bos_id = sp.bos_id()
     eos_id = sp.eos_id()
+    batch_size = src.size(0)
 
     src_mask = (src != 0).unsqueeze(1).unsqueeze(2)
     src_emb = model.dropout(model.positional_encoding(model.encoder_embedding(src)))
@@ -112,21 +112,32 @@ def greedy_decode(model, src, sp, device, max_len=100):
         src_emb = enc_layer(src_emb, src_mask)
     enc_output = src_emb
 
-    ys = torch.full((1, 1), bos_id, dtype=torch.long, device=device)
+    ys = torch.full((batch_size, 1), bos_id, dtype=torch.long, device=device)
+
+    finished = torch.zeros(batch_size, dtype=torch.bool, device=device)
 
     for _ in range(max_len):
-        tgt_mask = model._generate_tgt_mask(ys.size(1)).to(device)
+        tgt_mask = torch.tril(torch.ones((1, 1, ys.size(1), ys.size(1)), device=device)).bool()
         tgt_emb = model.dropout(model.positional_encoding(model.decoder_embedding(ys)))
         dec_output = tgt_emb
         for dec_layer in model.decoder_layers:
             dec_output = dec_layer(dec_output, enc_output, src_mask, tgt_mask)
         out = model.fc(dec_output[:, -1])
-        next_word = out.argmax(-1).unsqueeze(1)
-        ys = torch.cat([ys, next_word], dim=1)
-        if next_word.item() == eos_id:
+        next_token = out.argmax(-1).unsqueeze(1)
+        ys = torch.cat([ys, next_token], dim=1)
+
+        finished = finished | (next_token.squeeze(1) == eos_id)
+        if finished.all():
             break
 
-    return ys[0, 1:].cpu().tolist()  # Bỏ BOS
+    pred_ids = []
+    for i in range(batch_size):
+        seq = ys[i, 1:].tolist()
+        if eos_id in seq:
+            eos_idx = seq.index(eos_id)
+            seq = seq[:eos_idx]
+        pred_ids.append(seq)
+    return pred_ids
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate a GPT-mini model")

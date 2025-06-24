@@ -22,7 +22,7 @@ def evaluate(args):
 
     # Create model
     model = Transformer(
-        vocab_size=model_args['d_model'],
+        vocab_size=model_args['vocab_size'],
         d_model=model_args['d_model'],
         num_heads=model_args['num_heads'],
         num_layers=model_args['num_layers'],
@@ -63,7 +63,7 @@ def evaluate(args):
             logits = model(src, tgt[:, :-1])
             
             # Compute loss
-            loss = criterion(logits.view(-1, vocab_size), tgt[:, 1:].contiguous().view(-1))
+            loss = criterion(logits.view(-1, model_args['vocab_size']), tgt[:, 1:].contiguous().view(-1))
             mask = tgt[:, 1:] != 0
             
             total_loss += loss.item() * mask.sum().item()
